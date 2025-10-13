@@ -1,15 +1,12 @@
 # ----------------------------------------------------------
-# main.py - Versión base mínima
-# API OK + Prueba de conexión MySQL (health check)
+# main.py - API base + listar alumnos
 # ----------------------------------------------------------
 
 from fastapi import FastAPI, HTTPException
 import pymysql
 from pymysql.cursors import DictCursor
 
-# ----------------------------------------------------------
-# Configuración de conexión a MySQL
-# ----------------------------------------------------------
+# ------------------ Config BD -----------------------------
 DB_HOST = "192.168.1.251"
 DB_PORT = 3306
 DB_USER = "testuser"
@@ -17,37 +14,32 @@ DB_PASSWORD = "Jc10439536+"
 DB_NAME = "crud_alumnos"
 
 def get_connection():
-    """Crea y devuelve una conexión a la base de datos MySQL."""
+    """Crea y devuelve una conexión a MySQL con timeouts cortos."""
     try:
-        conn = pymysql.connect(
+        return pymysql.connect(
             host=DB_HOST,
             port=DB_PORT,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_NAME,
-            cursorclass=DictCursor,
+            cursorclass=DictCursor,  # filas como dict
             charset="utf8mb4",
             connect_timeout=5,
             read_timeout=5,
             write_timeout=5,
+            autocommit=False,
         )
-        return conn
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error de conexión: {e}")
 
-# ----------------------------------------------------------
-# Inicialización del API
-# ----------------------------------------------------------
+# ------------------ App FastAPI ---------------------------
 app = FastAPI(
-    title="API CRUD Alumnos - Etapa 1",
-    version="0.1.0",
-    description="API mínima para probar conexión a MySQL y salud general.",
+    title="API CRUD Alumnos - Paso 1",
+    version="0.2.0",
+    description="Base + health + listar alumnos.",
 )
 
-# ----------------------------------------------------------
-# Endpoints básicos
-# ----------------------------------------------------------
-
+# ------------------ Endpoints base ------------------------
 @app.get("/")
 def root():
     """Verifica que la API esté operativa."""
@@ -62,17 +54,35 @@ def health_db():
             cur.execute("SELECT 1 AS ok")
             row = cur.fetchone()
         conn.close()
-
         if row and row.get("ok") == 1:
             return {"db": "up"}
-        else:
-            return {"db": "unknown"}
+        return {"db": "unknown"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB down: {e}")
 
-# ----------------------------------------------------------
-# Ejecución directa (opcional)
-# ----------------------------------------------------------
+# ------------------ Nuevo: LISTAR ALUMNOS -----------------
+@app.get("/alumnos")
+def listar_alumnos():
+    """
+    Devuelve la lista completa de alumnos.
+    Respuesta: array de objetos con los campos de la tabla.
+    """
+    sql = """
+        SELECT id, nombre, nota1, nota2, nota3, notaFinal, promedioFinal
+        FROM alumnos
+        ORDER BY id DESC
+    """
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()  # lista de dicts
+        conn.close()
+        return rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al listar alumnos: {e}")
+
+# ------------------ Arranque local opcional ---------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
