@@ -1,19 +1,41 @@
 # ----------------------------------------------------------
-# main.py - API CRUD + CORS para frontend (React, etc.)
+# main.py - API CRUD + CORS + credenciales por entorno (.env)
 # ----------------------------------------------------------
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
+import os
 import pymysql
 from pymysql.cursors import DictCursor
 
-# ------------------ Config BD -----------------------------
-DB_HOST = "192.168.1.251"
-DB_PORT = 3306
-DB_USER = "testuser"
-DB_PASSWORD = "Jc10439536+"
-DB_NAME = "crud_alumnos"
+# ---------- Cargar .env (solo dev; en prod usa env del sistema) ----------
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # si no existe .env, no pasa nada
+except Exception:
+    pass
+
+# ------------------ Config desde variables de entorno --------------------
+def env_required(key: str) -> str:
+    val = os.getenv(key)
+    if not val:
+        raise RuntimeError(f"Falta la variable de entorno: {key}")
+    return val
+
+DB_HOST = env_required("DB_HOST")
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_USER = env_required("DB_USER")
+DB_PASSWORD = env_required("DB_PASSWORD")
+DB_NAME = env_required("DB_NAME")
+
+# CORS: lista de orígenes permitidos separados por coma
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",") if o.strip()
+]
 
 def get_connection():
     """Crea y devuelve una conexión a MySQL con timeouts cortos."""
@@ -24,7 +46,7 @@ def get_connection():
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_NAME,
-            cursorclass=DictCursor,  # filas como dict
+            cursorclass=DictCursor,
             charset="utf8mb4",
             connect_timeout=5,
             read_timeout=5,
@@ -69,27 +91,17 @@ def calcular_promedio(n1: float, n2: float, n3: float, examen: float) -> float:
 # ------------------ App FastAPI ---------------------------
 app = FastAPI(
     title="API CRUD Alumnos",
-    version="1.1.0",
-    description="Base + health + CRUD alumnos + CORS para frontend.",
+    version="1.2.0",
+    description="CRUD alumnos con credenciales via entorno y CORS configurable.",
 )
 
 # ------------------ CORS ----------------------------------
-# Lista blanca de orígenes permitidos (ajústala a tus necesidades)
-# Agrega aquí tu(s) dominio(s) de producción cuando los tengas.
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5500",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,  # usa ["*"] solo si NO usas credenciales
-    allow_credentials=True,         # cookies/autenticación del navegador
-    allow_methods=["*"],            # GET, POST, PUT, DELETE, OPTIONS, etc.
-    allow_headers=["*"],            # Authorization, Content-Type, etc.
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ------------------ Endpoints base ------------------------
@@ -116,10 +128,7 @@ def health_db():
 # ------------------ LISTAR ALUMNOS ------------------------
 @app.get("/alumnos")
 def listar_alumnos():
-    """
-    Devuelve la lista completa de alumnos.
-    Respuesta: array de objetos con los campos de la tabla.
-    """
+    """Devuelve la lista completa de alumnos."""
     sql = """
         SELECT id, nombre, nota1, nota2, nota3, notaFinal, promedioFinal
         FROM alumnos
@@ -157,9 +166,7 @@ def obtener_alumno(alumno_id: int):
 # ------------------ CREAR -------------------------------
 @app.post("/alumnos", response_model=AlumnoOut, status_code=201)
 def crear_alumno(data: AlumnoIn):
-    """
-    Crea un alumno nuevo. `promedioFinal` se calcula automáticamente.
-    """
+    """Crea un alumno nuevo. `promedioFinal` se calcula automáticamente."""
     promedio = calcular_promedio(data.nota1, data.nota2, data.nota3, data.notaFinal)
     sql = """
         INSERT INTO alumnos (nombre, nota1, nota2, nota3, notaFinal, promedioFinal)
@@ -192,9 +199,7 @@ def crear_alumno(data: AlumnoIn):
 # ------------------ ACTUALIZAR ---------------------------
 @app.put("/alumnos/{alumno_id}", response_model=AlumnoOut)
 def actualizar_alumno(alumno_id: int, data: AlumnoIn):
-    """
-    Actualiza un alumno existente. Recalcula `promedioFinal`.
-    """
+    """Actualiza un alumno existente. Recalcula `promedioFinal`."""
     sql_get = "SELECT id FROM alumnos WHERE id = %s"
     sql_upd = """
         UPDATE alumnos
