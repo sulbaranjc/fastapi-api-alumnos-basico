@@ -1,0 +1,23 @@
+# Entornos virtuales
+.venv/
+venv/
+
+# Cachés y bytecode de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variables de entorno y archivos locales
+.env
+*.log
+.DS_Store
+
+# Paquetes/artefactos de build
+build/
+dist/
+*.egg-info/
+
+# Configuraciones de IDE/Editor
+.vscode/
+.idea/
