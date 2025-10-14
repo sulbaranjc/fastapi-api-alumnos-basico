@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS alumnos (
 En la carpeta `backend/`, ejecuta:
 
 ```bash
-pip install fastapi uvicorn pymysql pydantic
+pip install "fastapi[all]" uvicorn black python-dotenv pymysql pydantic
 ```
 
 ### 2️⃣ Configurar conexión a MySQL

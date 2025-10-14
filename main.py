@@ -12,9 +12,11 @@ from pymysql.cursors import DictCursor
 # ---------- Cargar .env (solo dev; en prod usa env del sistema) ----------
 try:
     from dotenv import load_dotenv
+
     load_dotenv()  # si no existe .env, no pasa nada
 except Exception:
     pass
+
 
 # ------------------ Config desde variables de entorno --------------------
 def env_required(key: str) -> str:
@@ -22,6 +24,7 @@ def env_required(key: str) -> str:
     if not val:
         raise RuntimeError(f"Falta la variable de entorno: {key}")
     return val
+
 
 DB_HOST = env_required("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
@@ -31,11 +34,14 @@ DB_NAME = env_required("DB_NAME")
 
 # CORS: lista de orígenes permitidos separados por coma
 ALLOWED_ORIGINS = [
-    o.strip() for o in os.getenv(
+    o.strip()
+    for o in os.getenv(
         "ALLOWED_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
-    ).split(",") if o.strip()
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if o.strip()
 ]
+
 
 def get_connection():
     """Crea y devuelve una conexión a MySQL con timeouts cortos."""
@@ -56,9 +62,11 @@ def get_connection():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error de conexión: {e}")
 
+
 # ------------------ Modelos (entrada/salida) --------------
 def _nota_field():
     return Field(..., ge=0.0, le=10.0, description="Rango permitido: 0.0 a 10.0")
+
 
 class AlumnoIn(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=100)
@@ -74,6 +82,7 @@ class AlumnoIn(BaseModel):
             raise ValueError("El nombre no puede estar vacío.")
         return v
 
+
 class AlumnoOut(BaseModel):
     id: int
     nombre: str
@@ -83,10 +92,12 @@ class AlumnoOut(BaseModel):
     notaFinal: float
     promedioFinal: float
 
+
 # ------------------ Utilidad de negocio -------------------
 def calcular_promedio(n1: float, n2: float, n3: float, examen: float) -> float:
     continua = (n1 + n2 + n3) / 3.0
     return round(continua * 0.7 + examen * 0.3, 2)
+
 
 # ------------------ App FastAPI ---------------------------
 app = FastAPI(
@@ -104,11 +115,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ------------------ Endpoints base ------------------------
 @app.get("/")
 def root():
     """Verifica que la API esté operativa."""
     return {"api": "OK"}
+
 
 @app.get("/health/db")
 def health_db():
@@ -124,6 +137,7 @@ def health_db():
         return {"db": "unknown"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB down: {e}")
+
 
 # ------------------ LISTAR ALUMNOS ------------------------
 @app.get("/alumnos")
@@ -144,6 +158,7 @@ def listar_alumnos():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al listar alumnos: {e}")
 
+
 # ------------------ OBTENER POR ID ------------------------
 @app.get("/alumnos/{alumno_id}", response_model=AlumnoOut)
 def obtener_alumno(alumno_id: int):
@@ -163,6 +178,7 @@ def obtener_alumno(alumno_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener alumno: {e}")
 
+
 # ------------------ CREAR -------------------------------
 @app.post("/alumnos", response_model=AlumnoOut, status_code=201)
 def crear_alumno(data: AlumnoIn):
@@ -175,7 +191,17 @@ def crear_alumno(data: AlumnoIn):
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            cur.execute(sql, (data.nombre, data.nota1, data.nota2, data.nota3, data.notaFinal, promedio))
+            cur.execute(
+                sql,
+                (
+                    data.nombre,
+                    data.nota1,
+                    data.nota2,
+                    data.nota3,
+                    data.notaFinal,
+                    promedio,
+                ),
+            )
             nuevo_id = cur.lastrowid
         conn.commit()
         conn.close()
@@ -186,7 +212,7 @@ def crear_alumno(data: AlumnoIn):
             nota2=data.nota2,
             nota3=data.nota3,
             notaFinal=data.notaFinal,
-            promedioFinal=promedio
+            promedioFinal=promedio,
         )
     except Exception as e:
         try:
@@ -195,6 +221,7 @@ def crear_alumno(data: AlumnoIn):
         except:
             pass
         raise HTTPException(status_code=500, detail=f"Error al crear alumno: {e}")
+
 
 # ------------------ ACTUALIZAR ---------------------------
 @app.put("/alumnos/{alumno_id}", response_model=AlumnoOut)
@@ -214,7 +241,18 @@ def actualizar_alumno(alumno_id: int, data: AlumnoIn):
             if not cur.fetchone():
                 conn.close()
                 raise HTTPException(status_code=404, detail="Alumno no encontrado")
-            cur.execute(sql_upd, (data.nombre, data.nota1, data.nota2, data.nota3, data.notaFinal, promedio, alumno_id))
+            cur.execute(
+                sql_upd,
+                (
+                    data.nombre,
+                    data.nota1,
+                    data.nota2,
+                    data.nota3,
+                    data.notaFinal,
+                    promedio,
+                    alumno_id,
+                ),
+            )
         conn.commit()
         conn.close()
         return AlumnoOut(
@@ -224,7 +262,7 @@ def actualizar_alumno(alumno_id: int, data: AlumnoIn):
             nota2=data.nota2,
             nota3=data.nota3,
             notaFinal=data.notaFinal,
-            promedioFinal=promedio
+            promedioFinal=promedio,
         )
     except HTTPException:
         raise
@@ -235,6 +273,7 @@ def actualizar_alumno(alumno_id: int, data: AlumnoIn):
         except:
             pass
         raise HTTPException(status_code=500, detail=f"Error al actualizar alumno: {e}")
+
 
 # ------------------ ELIMINAR -----------------------------
 @app.delete("/alumnos/{alumno_id}")
@@ -261,7 +300,9 @@ def eliminar_alumno(alumno_id: int):
             pass
         raise HTTPException(status_code=500, detail=f"Error al eliminar alumno: {e}")
 
+
 # ------------------ Arranque local opcional ---------------
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
