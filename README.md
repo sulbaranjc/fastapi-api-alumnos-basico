@@ -91,7 +91,9 @@ DB_NAME = "crud_alumnos"
 
 ### 3️⃣ Ejecutar la API
 ```bash
-uvicorn main:app --reload
+.\.venv\Scripts\activate
+uvicorn alumnos_api.main:app --reload --host 0.0.0.0 --port 8000
+
 ```
 
 📍 Accede a:
