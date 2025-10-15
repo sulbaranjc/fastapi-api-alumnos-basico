@@ -89,11 +89,17 @@ DB_PASSWORD = "Jc10439536+"
 DB_NAME = "crud_alumnos"
 ```
 
-### 3️⃣ Ejecutar la API
+### 3️⃣ Ejecutar la API CMD
 ```bash
-uvicorn main:app --reload
+.venv\Scripts\activate  
+uvicorn alumnos_api.main:app --reload
 ```
+### 3️⃣ Ejecutar la API Pcshell
+```bash
+.\.venv\Scripts\Activate.ps1
+uvicorn alumnos_api.main:app --reload
 
+```
 📍 Accede a:
 - API root → http://127.0.0.1:8000/
 - Documentación Swagger → http://127.0.0.1:8000/docs  
