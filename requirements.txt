@@ -13,6 +13,9 @@ h11==0.16.0
 httpcore==1.0.9
 httptools==0.7.1
 httpx==0.28.1
+sqlmodel==0.0.21
+sqlalchemy==2.0.32
+pymysql[rsa]==1.1.2
 idna==3.11
 itsdangerous==2.2.0
 Jinja2==3.1.6
@@ -29,7 +32,6 @@ pydantic-extra-types==2.10.6
 pydantic-settings==2.11.0
 pydantic_core==2.41.4
 Pygments==2.19.2
-PyMySQL==1.1.2
 python-dotenv==1.1.1
 python-multipart==0.0.20
 pytokens==0.1.10

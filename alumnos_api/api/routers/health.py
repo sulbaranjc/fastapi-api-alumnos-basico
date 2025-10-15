@@ -1,19 +1,19 @@
 from fastapi import APIRouter
-from ...core.db import get_connection
+from sqlmodel import text
+from ...deps import SessionDep
 
 router = APIRouter(prefix="/health", tags=["health"])
 
 @router.get("/")
 def root():
+    """Health check básico de la API"""
     return {"api": "OK"}
 
 @router.get("/db")
-def db():
-    conn = get_connection()
+def db(session: SessionDep):
+    """Health check de la base de datos usando SQLModel"""
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 AS ok")
-            row = cur.fetchone()
-        return {"db": "up" if row and row.get("ok") == 1 else "unknown"}
-    finally:
-        conn.close()
+        result = session.exec(text("SELECT 1 AS ok")).first()
+        return {"db": "up" if result and result[0] == 1 else "unknown"}
+    except Exception as e:
+        return {"db": "down", "error": str(e)}

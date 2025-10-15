@@ -1,49 +1,63 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
+from sqlmodel import Session, select, desc
 from fastapi import HTTPException
+from ..schemas.alumno import Alumno, AlumnoIn
 from ..services.alumnos_service import calcular_promedio
 
-def listar(conn) -> List[Dict[str, Any]]:
-    with conn.cursor() as cur:
-        cur.execute("""SELECT id, nombre, nota1, nota2, nota3, notaFinal, promedioFinal
-                       FROM alumnos ORDER BY id DESC""")
-        return cur.fetchall()
+def listar(session: Session) -> List[Alumno]:
+    """Listar todos los alumnos ordenados por ID descendente"""
+    statement = select(Alumno).order_by(desc(Alumno.id))
+    return session.exec(statement).all()
 
-def obtener(conn, alumno_id: int) -> Dict[str, Any]:
-    with conn.cursor() as cur:
-        cur.execute("""SELECT id, nombre, nota1, nota2, nota3, notaFinal, promedioFinal
-                       FROM alumnos WHERE id=%s""", (alumno_id,))
-        row = cur.fetchone()
-    if not row:
+def obtener(session: Session, alumno_id: int) -> Alumno:
+    """Obtener un alumno por ID"""
+    alumno = session.get(Alumno, alumno_id)
+    if not alumno:
         raise HTTPException(status_code=404, detail="Alumno no encontrado")
-    return row
+    return alumno
 
-def crear(conn, data) -> Dict[str, Any]:
+def crear(session: Session, data: AlumnoIn) -> Alumno:
+    """Crear un nuevo alumno"""
     promedio = calcular_promedio(data.nota1, data.nota2, data.nota3, data.notaFinal)
-    with conn.cursor() as cur:
-        cur.execute("""INSERT INTO alumnos (nombre, nota1, nota2, nota3, notaFinal, promedioFinal)
-                       VALUES (%s,%s,%s,%s,%s,%s)""",
-                    (data.nombre, data.nota1, data.nota2, data.nota3, data.notaFinal, promedio))
-        nuevo_id = cur.lastrowid
-    conn.commit()
-    return {**data.dict(), "id": nuevo_id, "promedioFinal": promedio}
+    
+    # Crear instancia del modelo
+    alumno = Alumno(
+        nombre=data.nombre,
+        nota1=data.nota1,
+        nota2=data.nota2,
+        nota3=data.nota3,
+        notaFinal=data.notaFinal,
+        promedioFinal=promedio
+    )
+    
+    session.add(alumno)
+    session.commit()
+    session.refresh(alumno)
+    return alumno
 
-def actualizar(conn, alumno_id: int, data) -> Dict[str, Any]:
-    # asegurar existencia
-    obtener(conn, alumno_id)
+def actualizar(session: Session, alumno_id: int, data: AlumnoIn) -> Alumno:
+    """Actualizar un alumno existente"""
+    alumno = obtener(session, alumno_id)  # Verificar que existe
+    
     promedio = calcular_promedio(data.nota1, data.nota2, data.nota3, data.notaFinal)
-    with conn.cursor() as cur:
-        cur.execute("""UPDATE alumnos
-                       SET nombre=%s, nota1=%s, nota2=%s, nota3=%s, notaFinal=%s, promedioFinal=%s
-                       WHERE id=%s""",
-                    (data.nombre, data.nota1, data.nota2, data.nota3, data.notaFinal, promedio, alumno_id))
-    conn.commit()
-    return {"id": alumno_id, **data.dict(), "promedioFinal": promedio}
+    
+    # Actualizar campos
+    alumno.nombre = data.nombre
+    alumno.nota1 = data.nota1
+    alumno.nota2 = data.nota2
+    alumno.nota3 = data.nota3
+    alumno.notaFinal = data.notaFinal
+    alumno.promedioFinal = promedio
+    
+    session.add(alumno)
+    session.commit()
+    session.refresh(alumno)
+    return alumno
 
-def eliminar(conn, alumno_id: int) -> bool:
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM alumnos WHERE id=%s", (alumno_id,))
-        afectados = cur.rowcount
-    conn.commit()
-    if afectados == 0:
-        raise HTTPException(status_code=404, detail="Alumno no encontrado")
+def eliminar(session: Session, alumno_id: int) -> bool:
+    """Eliminar un alumno"""
+    alumno = obtener(session, alumno_id)  # Verificar que existe
+    
+    session.delete(alumno)
+    session.commit()
     return True

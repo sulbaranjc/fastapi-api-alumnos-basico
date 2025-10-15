@@ -1,9 +1,9 @@
-# 📚 CRUD de Alumnos — FastAPI + MySQL + Frontend Vanilla JS
+# 📚 CRUD de Alumnos — FastAPI + SQLModel + MySQL
 
 Proyecto completo de ejemplo que implementa un **CRUD de alumnos** usando:
 
-- ⚙️ **Backend:** [FastAPI](https://fastapi.tiangolo.com/) + [PyMySQL](https://pymysql.readthedocs.io)
-- 🗄️ **Base de datos:** MySQL
+- ⚙️ **Backend:** [FastAPI](https://fastapi.tiangolo.com/) + [SQLModel](https://sqlmodel.tiangolo.com/)
+- 🗄️ **Base de datos:** MySQL con SQLAlchemy
 - 💻 **Frontend:** HTML, CSS y JavaScript vanilla
 - 🌐 **CORS habilitado:** compatible con React, Vite o cualquier cliente web moderno
 
@@ -12,28 +12,42 @@ Proyecto completo de ejemplo que implementa un **CRUD de alumnos** usando:
 ## 🚀 Características
 
 - API REST con endpoints CRUD (`GET`, `POST`, `PUT`, `DELETE`)
+- **SQLModel ORM** para manejo type-safe de base de datos
 - Validación de rango de notas (0.0 a 10.0)
 - Cálculo automático del promedio final:  
   `promedioFinal = ((nota1 + nota2 + nota3)/3)*0.7 + notaFinal*0.3`
+- **Creación automática de tablas** con SQLModel
 - Health check de base de datos (`/health/db`)
-- CORS configurado para `localhost:3000` y `localhost:5173`
-- Frontend minimalista y funcional con tabla dinámica, formulario y estilo moderno
+- CORS configurado para desarrollo
+- **Dependency Injection** para sesiones de base de datos
 
 ---
 
 ## 🧩 Estructura del proyecto
 
 ```
-CRUD-Alumnos/
+fastapi-api-alumnos-basico/
 │
-├── backend/
-│   └── main.py
-│
-├── frontend/
-│   ├── index.html
-│   ├── style.css
-│   └── app.js
-│
+├── alumnos_api/
+│   ├── main.py              # Punto de entrada con auto-init de tablas
+│   ├── deps.py              # Dependencias de FastAPI (SessionDep)
+│   ├── api/routers/
+│   │   ├── alumnos.py       # CRUD endpoints con SQLModel
+│   │   └── health.py        # Health checks
+│   ├── core/
+│   │   ├── config.py        # Configuración con Pydantic Settings
+│   │   ├── db.py            # SQLAlchemy engine + Session factory
+│   │   ├── init_db.py       # Script para inicializar tablas
+│   │   └── logging.py       # Sistema de logging
+│   ├── repositories/
+│   │   └── alumnos_repo.py  # Lógica de datos con SQLModel queries
+│   ├── services/
+│   │   └── alumnos_service.py  # Cálculo de promedios
+│   └── schemas/
+│       └── alumno.py        # Modelos SQLModel (tabla + DTOs)
+├── tests/
+├── .env.example             # Configuración de ejemplo
+├── requirements.txt         # Incluye SQLModel
 └── README.md
 ```
 
@@ -72,24 +86,34 @@ CREATE TABLE IF NOT EXISTS alumnos (
 ## ⚙️ Configuración del Backend
 
 ### 1️⃣ Instalar dependencias
-En la carpeta `backend/`, ejecuta:
-
 ```bash
-pip install "fastapi[all]" uvicorn black python-dotenv pymysql pydantic
+pip install -r requirements.txt
 ```
 
-### 2️⃣ Configurar conexión a MySQL
-Edita las variables al inicio de `main.py`:
-
-```python
-DB_HOST = "192.168.1.251"
-DB_PORT = 3306
-DB_USER = "testuser"
-DB_PASSWORD = "Jc10439536+"
-DB_NAME = "crud_alumnos"
+### 2️⃣ Configurar variables de entorno
+Copia y configura el archivo `.env`:
+```bash
+cp .env.example .env
 ```
 
-### 3️⃣ Ejecutar la API CMD
+Edita `.env` con tus datos de MySQL:
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=tu_usuario
+DB_PASSWORD=tu_contraseña
+DB_NAME=crud_alumnos
+```
+
+### 3️⃣ Crear base de datos
+Ejecuta este script en MySQL:
+```sql
+CREATE DATABASE IF NOT EXISTS crud_alumnos;
+```
+
+> ✨ **Las tablas se crean automáticamente** gracias a SQLModel al iniciar la API.
+
+### 4️⃣ Ejecutar la API
 ```bash
 .venv\Scripts\activate  
 uvicorn alumnos_api.main:app --reload
@@ -176,11 +200,23 @@ curl http://127.0.0.1:8000/alumnos
 
 | Componente | Tecnología |
 |-------------|-------------|
-| Backend | FastAPI |
-| Base de datos | MySQL 8 |
-| ORM / Conector | PyMySQL |
+| Backend | FastAPI + SQLModel |
+| Base de datos | MySQL 8 + SQLAlchemy |
+| ORM | SQLModel (Pydantic + SQLAlchemy) |
+| Dependency Injection | FastAPI Depends |
 | Frontend | HTML5, CSS3, JavaScript (ES6) |
 | Servidor | Uvicorn |
+
+---
+
+## 🆕 Novedades con SQLModel
+
+- **🎯 Type Safety:** Modelos tipados que funcionan tanto para API como BD
+- **🔄 Auto-migrations:** Creación automática de tablas
+- **💉 Dependency Injection:** Sesiones de BD mediante FastAPI Depends
+- **🧪 Fácil testing:** Modelos compartidos entre tests y producción
+- **📝 Menos código:** Un solo modelo para tabla, input y output
+- **🚀 Mejor rendimiento:** Connection pooling con SQLAlchemy
 
 ---
 

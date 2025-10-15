@@ -1,49 +1,33 @@
-from fastapi import APIRouter, HTTPException
-from ...core.db import get_connection
+from typing import List
+from fastapi import APIRouter
+from ...deps import SessionDep
 from ...schemas.alumno import AlumnoIn, AlumnoOut
 from ...repositories import alumnos_repo as repo
 
 router = APIRouter(prefix="/alumnos", tags=["alumnos"])
 
-@router.get("")
-def listar():
-    conn = get_connection()
-    try:
-        return repo.listar(conn)
-    finally:
-        conn.close()
+@router.get("", response_model=List[AlumnoOut])
+def listar(session: SessionDep):
+    """Listar todos los alumnos"""
+    return repo.listar(session)
 
 @router.get("/{alumno_id}", response_model=AlumnoOut)
-def obtener(alumno_id: int):
-    conn = get_connection()
-    try:
-        return repo.obtener(conn, alumno_id)
-    finally:
-        conn.close()
+def obtener(alumno_id: int, session: SessionDep):
+    """Obtener un alumno por ID"""
+    return repo.obtener(session, alumno_id)
 
 @router.post("", response_model=AlumnoOut, status_code=201)
-def crear(data: AlumnoIn):
-    conn = get_connection()
-    try:
-        row = repo.crear(conn, data)
-        return AlumnoOut(**row)
-    finally:
-        conn.close()
+def crear(data: AlumnoIn, session: SessionDep):
+    """Crear un nuevo alumno"""
+    return repo.crear(session, data)
 
 @router.put("/{alumno_id}", response_model=AlumnoOut)
-def actualizar(alumno_id: int, data: AlumnoIn):
-    conn = get_connection()
-    try:
-        row = repo.actualizar(conn, alumno_id, data)
-        return AlumnoOut(**row)
-    finally:
-        conn.close()
+def actualizar(alumno_id: int, data: AlumnoIn, session: SessionDep):
+    """Actualizar un alumno existente"""
+    return repo.actualizar(session, alumno_id, data)
 
 @router.delete("/{alumno_id}")
-def eliminar(alumno_id: int):
-    conn = get_connection()
-    try:
-        repo.eliminar(conn, alumno_id)
-        return {"deleted": True, "id": alumno_id}
-    finally:
-        conn.close()
+def eliminar(alumno_id: int, session: SessionDep):
+    """Eliminar un alumno"""
+    repo.eliminar(session, alumno_id)
+    return {"deleted": True, "id": alumno_id}
