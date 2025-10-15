@@ -84,8 +84,8 @@ Edita las variables al inicio de `main.py`:
 ```python
 DB_HOST = "192.168.1.251"
 DB_PORT = 3306
-DB_USER = "testuser"
-DB_PASSWORD = "Jc10439536+"
+DB_USER = xxxxxx
+DB_PASSWORD = xxxxxx
 DB_NAME = "crud_alumnos"
 ```
 
