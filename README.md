@@ -89,8 +89,15 @@ DB_PASSWORD = xxxxxx
 DB_NAME = "crud_alumnos"
 ```
 
-### 3️⃣ Ejecutar la API
+### 3️⃣ Ejecutar la API CMD
 ```bash
+.venv\Scripts\activate
+uvicorn main:app --reload
+```
+
+### 3️⃣ Ejecutar la API pcshell
+```bash
+.\.venv\Scripts\activate
 uvicorn main:app --reload
 ```
 
