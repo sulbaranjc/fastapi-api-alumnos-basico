@@ -26,11 +26,15 @@ def get_session():
     with Session(engine) as session:
         try:
             yield session
+        except HTTPException:
+            # ⚠️ Re-lanza directamente errores HTTP (por ejemplo, de autenticación JWT)
+            raise
         except Exception as e:
             session.rollback()
             raise HTTPException(status_code=500, detail=f"Error de base de datos: {e}")
         finally:
             session.close()
+
 
 # Función legacy para compatibilidad (se puede remover después)
 def get_connection():

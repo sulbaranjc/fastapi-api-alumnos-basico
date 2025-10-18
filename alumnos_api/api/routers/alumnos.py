@@ -1,8 +1,9 @@
 from typing import List
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from ...deps import SessionDep
 from ...schemas.alumno import AlumnoIn, AlumnoOut
 from ...repositories import alumnos_repo as repo
+from ...core.security import JWTBearer
 
 router = APIRouter(prefix="/alumnos", tags=["alumnos"])
 
@@ -17,17 +18,30 @@ def obtener(alumno_id: int, session: SessionDep):
     return repo.obtener(session, alumno_id)
 
 @router.post("", response_model=AlumnoOut, status_code=201)
-def crear(data: AlumnoIn, session: SessionDep):
-    """Crear un nuevo alumno"""
+def crear(
+    data: AlumnoIn,
+    session: SessionDep,
+    current_user: str = Depends(JWTBearer())  # 👈 Verifica token
+):
+    """Crear un nuevo alumno (protegido con JWT)"""
     return repo.crear(session, data)
 
 @router.put("/{alumno_id}", response_model=AlumnoOut)
-def actualizar(alumno_id: int, data: AlumnoIn, session: SessionDep):
-    """Actualizar un alumno existente"""
+def actualizar(
+    alumno_id: int,
+    data: AlumnoIn,
+    session: SessionDep,
+    current_user: str = Depends(JWTBearer())  # 👈 Verifica token
+):
+    """Actualizar un alumno existente (protegido con JWT)"""
     return repo.actualizar(session, alumno_id, data)
 
 @router.delete("/{alumno_id}")
-def eliminar(alumno_id: int, session: SessionDep):
-    """Eliminar un alumno"""
+def eliminar(
+    alumno_id: int,
+    session: SessionDep,
+    current_user: str = Depends(JWTBearer())  # 👈 Verifica token
+):
+    """Eliminar un alumno (protegido con JWT)"""
     repo.eliminar(session, alumno_id)
     return {"deleted": True, "id": alumno_id}

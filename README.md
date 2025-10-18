@@ -228,3 +228,10 @@ curl http://127.0.0.1:8000/alumnos
 
 > Proyecto educativo para enseñanza de programación y bases de datos.  
 > Licencia MIT — libre uso y adaptación.
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImV4cCI6MTc2MDc4NzM4N30.jbUUlRbY6YHKNLjrCv4X1k3DvEKxFf3ZnX3v1SG8Ncw
