@@ -1,6 +1,6 @@
 # Repositorio de fuentes
 # Raíz: D:\ILERNA\2025-2026\CMO Programacion_en_Python\api-alumnos-basico\fastapi-api-alumnos-basico
-# Archivos incluidos: 26
+# Archivos incluidos: 28
 
 .env.example
 ----------------------------------------------------------------
@@ -51,10 +51,11 @@ alumnos_api\api\routers\__init__.py
 alumnos_api\api\routers\alumnos.py
 ----------------------------------------------------------------
 from typing import List
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from ...deps import SessionDep
 from ...schemas.alumno import AlumnoIn, AlumnoOut
 from ...repositories import alumnos_repo as repo
+from ...core.security import JWTBearer
 
 router = APIRouter(prefix="/alumnos", tags=["alumnos"])
 
@@ -69,20 +70,82 @@ def obtener(alumno_id: int, session: SessionDep):
     return repo.obtener(session, alumno_id)
 
 @router.post("", response_model=AlumnoOut, status_code=201)
-def crear(data: AlumnoIn, session: SessionDep):
-    """Crear un nuevo alumno"""
+def crear(
+    data: AlumnoIn,
+    session: SessionDep,
+    current_user: str = Depends(JWTBearer())  # 👈 Verifica token
+):
+    """Crear un nuevo alumno (protegido con JWT)"""
     return repo.crear(session, data)
 
 @router.put("/{alumno_id}", response_model=AlumnoOut)
-def actualizar(alumno_id: int, data: AlumnoIn, session: SessionDep):
-    """Actualizar un alumno existente"""
+def actualizar(
+    alumno_id: int,
+    data: AlumnoIn,
+    session: SessionDep,
+    current_user: str = Depends(JWTBearer())  # 👈 Verifica token
+):
+    """Actualizar un alumno existente (protegido con JWT)"""
     return repo.actualizar(session, alumno_id, data)
 
 @router.delete("/{alumno_id}")
-def eliminar(alumno_id: int, session: SessionDep):
-    """Eliminar un alumno"""
+def eliminar(
+    alumno_id: int,
+    session: SessionDep,
+    current_user: str = Depends(JWTBearer())  # 👈 Verifica token
+):
+    """Eliminar un alumno (protegido con JWT)"""
     repo.eliminar(session, alumno_id)
     return {"deleted": True, "id": alumno_id}
+
+alumnos_api\api\routers\auth.py
+----------------------------------------------------------------
+# alumnos_api/api/routers/auth.py
+
+from fastapi import APIRouter, HTTPException, status, Depends
+from pydantic import BaseModel
+from jose import jwt
+from datetime import datetime, timedelta
+
+from alumnos_api.core.config import settings
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Usuario hardcodeado (por ahora, en memoria)
+USER_DB = {
+    "admin": {
+        "username": "admin",
+        "password": "admin123",  # para pruebas (en producción usar hash)
+    }
+}
+
+# Secretos y expiración
+JWT_SECRET = "supersecreto123"  # En producción ponerlo en .env
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = 60
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+@router.post("/login", response_model=TokenResponse)
+def login(data: LoginRequest):
+    user = USER_DB.get(data.username)
+    if not user or data.password != user["password"]:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    expire = datetime.utcnow() + timedelta(minutes=JWT_EXPIRE_MINUTES)
+    payload = {
+        "sub": data.username,
+        "exp": expire
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+    return {"access_token": token}
 
 alumnos_api\api\routers\health.py
 ----------------------------------------------------------------
@@ -188,11 +251,15 @@ def get_session():
     with Session(engine) as session:
         try:
             yield session
+        except HTTPException:
+            # ⚠️ Re-lanza directamente errores HTTP (por ejemplo, de autenticación JWT)
+            raise
         except Exception as e:
             session.rollback()
             raise HTTPException(status_code=500, detail=f"Error de base de datos: {e}")
         finally:
             session.close()
+
 
 # Función legacy para compatibilidad (se puede remover después)
 def get_connection():
@@ -258,6 +325,38 @@ def setup_logging():
     )
     return logging.getLogger("alumnos-api")
 
+alumnos_api\core\security.py
+----------------------------------------------------------------
+# alumnos_api/core/security.py
+
+from fastapi import Request, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError
+from typing import Optional
+
+JWT_SECRET = "supersecreto123"  # ⚠️ Reemplaza esto por una variable de entorno en producción
+JWT_ALGORITHM = "HS256"
+
+class JWTBearer(HTTPBearer):
+    def __init__(self, auto_error: bool = True):
+        super().__init__(auto_error=auto_error)
+
+    async def __call__(self, request: Request) -> str:
+        credentials: Optional[HTTPAuthorizationCredentials] = await super().__call__(request)
+        if not credentials or credentials.scheme != "Bearer":
+            raise HTTPException(status_code=403, detail="Token inválido")
+        return self.verify_token(credentials.credentials)
+
+    def verify_token(self, token: str) -> str:
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            username = payload.get("sub")
+            if not isinstance(username, str):
+                raise HTTPException(status_code=403, detail="Token sin usuario válido")
+            return username
+        except JWTError:
+            raise HTTPException(status_code=403, detail="Token inválido o expirado")
+
 alumnos_api\deps.py
 ----------------------------------------------------------------
 """
@@ -288,11 +387,13 @@ from alumnos_api.core.config import settings
 from alumnos_api.core.logging import setup_logging
 from alumnos_api.core.db import create_db_and_tables
 from alumnos_api.api.routers import alumnos, health
+from alumnos_api.api.routers import auth  # 👈 nuevo import
+from fastapi.openapi.utils import get_openapi
 
 log = setup_logging()
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, version=settings.version)
+    app = FastAPI(title=settings.app_name, version=settings.version, debug=True)
 
     app.add_middleware(
         CORSMiddleware,
@@ -304,6 +405,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(alumnos.router)
+    app.include_router(auth.router)  # 👈 nuevo router
     
     # Crear tablas automáticamente al iniciar la aplicación
     @app.on_event("startup")
@@ -318,11 +420,39 @@ def create_app() -> FastAPI:
 # Imprescindible para uvicorn alumnos_api.main:app
 app = create_app()
 
+# ✅ Versión corregida del custom_openapi
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=settings.app_name,
+        version=settings.version,
+        description="API CRUD protegida con JWT",
+        routes=app.routes,
+    )
+
+    # Declaramos el esquema de seguridad para JWT
+    openapi_schema["components"]["securitySchemes"] = {
+        "bearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+
+    # ✅ Eliminamos el bucle que añadía seguridad global a todos los endpoints
+    # De esta manera, solo los endpoints que usen Depends(JWTBearer())
+    # se mostrarán con candado 🔒 en Swagger UI
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("alumnos_api.main:app", host="0.0.0.0", port=8000, reload=True)
-
-
 
 alumnos_api\repositories\__init__.py
 ----------------------------------------------------------------
@@ -834,6 +964,13 @@ curl http://127.0.0.1:8000/alumnos
 
 > Proyecto educativo para enseñanza de programación y bases de datos.  
 > Licencia MIT — libre uso y adaptación.
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImV4cCI6MTc2MDc4NzM4N30.jbUUlRbY6YHKNLjrCv4X1k3DvEKxFf3ZnX3v1SG8Ncw
 
 recolector_fuentes.py
 ----------------------------------------------------------------
