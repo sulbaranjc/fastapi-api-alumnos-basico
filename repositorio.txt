@@ -1,0 +1,1232 @@
+# Repositorio de fuentes
+# Raíz: D:\ILERNA\2025-2026\CMO Programacion_en_Python\api-alumnos-basico\fastapi-api-alumnos-basico
+# Archivos incluidos: 26
+
+.env.example
+----------------------------------------------------------------
+# Configuración de Base de Datos MySQL
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=tu_usuario
+DB_PASSWORD=tu_contraseña
+DB_NAME=crud_alumnos
+
+# Configuración CORS (opcional)
+# ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:5173","http://localhost:8080"]
+
+.gitignore
+----------------------------------------------------------------
+# Entornos virtuales
+.venv/
+venv/
+
+# Cachés y bytecode de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variables de entorno y archivos locales
+.env
+*.log
+.DS_Store
+
+# Paquetes/artefactos de build
+build/
+dist/
+*.egg-info/
+
+# Configuraciones de IDE/Editor
+.vscode/
+.idea/
+
+alumnos_api\api\__init__.py
+----------------------------------------------------------------
+
+
+alumnos_api\api\routers\__init__.py
+----------------------------------------------------------------
+
+
+alumnos_api\api\routers\alumnos.py
+----------------------------------------------------------------
+from typing import List
+from fastapi import APIRouter
+from ...deps import SessionDep
+from ...schemas.alumno import AlumnoIn, AlumnoOut
+from ...repositories import alumnos_repo as repo
+
+router = APIRouter(prefix="/alumnos", tags=["alumnos"])
+
+@router.get("", response_model=List[AlumnoOut])
+def listar(session: SessionDep):
+    """Listar todos los alumnos"""
+    return repo.listar(session)
+
+@router.get("/{alumno_id}", response_model=AlumnoOut)
+def obtener(alumno_id: int, session: SessionDep):
+    """Obtener un alumno por ID"""
+    return repo.obtener(session, alumno_id)
+
+@router.post("", response_model=AlumnoOut, status_code=201)
+def crear(data: AlumnoIn, session: SessionDep):
+    """Crear un nuevo alumno"""
+    return repo.crear(session, data)
+
+@router.put("/{alumno_id}", response_model=AlumnoOut)
+def actualizar(alumno_id: int, data: AlumnoIn, session: SessionDep):
+    """Actualizar un alumno existente"""
+    return repo.actualizar(session, alumno_id, data)
+
+@router.delete("/{alumno_id}")
+def eliminar(alumno_id: int, session: SessionDep):
+    """Eliminar un alumno"""
+    repo.eliminar(session, alumno_id)
+    return {"deleted": True, "id": alumno_id}
+
+alumnos_api\api\routers\health.py
+----------------------------------------------------------------
+from fastapi import APIRouter
+from sqlmodel import text
+from ...deps import SessionDep
+
+router = APIRouter(prefix="/health", tags=["health"])
+
+@router.get("/")
+def root():
+    """Health check básico de la API"""
+    return {"api": "OK"}
+
+@router.get("/db")
+def db(session: SessionDep):
+    """Health check de la base de datos usando SQLModel"""
+    try:
+        result = session.exec(text("SELECT 1 AS ok")).first()
+        return {"db": "up" if result and result[0] == 1 else "unknown"}
+    except Exception as e:
+        return {"db": "down", "error": str(e)}
+
+alumnos_api\core\__init__.py
+----------------------------------------------------------------
+
+
+alumnos_api\core\config.py
+----------------------------------------------------------------
+# alumnos_api/core/config.py
+from typing import List
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+
+class Settings(BaseSettings):
+    app_name: str = "API CRUD Alumnos"
+    version: str = "2.0.0"
+
+    db_host: str
+    db_port: int = 3306
+    db_user: str
+    db_password: str
+    db_name: str
+
+    # Valor por defecto (sirve si no defines ALLOWED_ORIGINS en .env)
+    allowed_origins: List[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5500",
+    ]
+
+    # ✅ Acepta JSON o CSV en .env (pydantic v2)
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v):
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            if s.startswith("["):   # JSON válido
+                return s
+            # CSV simple: "http://a:3000,http://b:5173"
+            return [x.strip() for x in s.split(",") if x.strip()]
+        return v
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+settings = Settings()  # type: ignore[call-arg]
+
+alumnos_api\core\db.py
+----------------------------------------------------------------
+from sqlmodel import SQLModel, create_engine, Session
+from fastapi import HTTPException
+from .config import settings
+
+# Crear el engine de SQLAlchemy
+DATABASE_URL = (
+    f"mysql+pymysql://{settings.db_user}:{settings.db_password}"
+    f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+)
+
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=3600,
+    echo=False  # Cambia a True para debug SQL
+)
+
+def create_db_and_tables():
+    """Crear todas las tablas definidas en SQLModel"""
+    SQLModel.metadata.create_all(engine)
+
+def get_session():
+    """Dependency para obtener una sesión de base de datos"""
+    with Session(engine) as session:
+        try:
+            yield session
+        except Exception as e:
+            session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error de base de datos: {e}")
+        finally:
+            session.close()
+
+# Función legacy para compatibilidad (se puede remover después)
+def get_connection():
+    """Función de compatibilidad - usar get_session() en su lugar"""
+    import pymysql
+    from pymysql.cursors import DictCursor
+    try:
+        return pymysql.connect(
+            host=settings.db_host,
+            port=settings.db_port,
+            user=settings.db_user,
+            password=settings.db_password,
+            database=settings.db_name,
+            cursorclass=DictCursor,
+            charset="utf8mb4",
+            connect_timeout=5, read_timeout=5, write_timeout=5,
+            autocommit=False,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error de conexión: {e}")
+
+alumnos_api\core\init_db.py
+----------------------------------------------------------------
+"""
+Script para inicializar la base de datos con SQLModel
+"""
+from sqlmodel import SQLModel
+from alumnos_api.core.db import engine
+from alumnos_api.schemas.alumno import Alumno  # Importar para registrar el modelo
+
+def init_db():
+    """
+    Crear todas las tablas en la base de datos
+    """
+    print("🔄 Creando tablas de base de datos...")
+    SQLModel.metadata.create_all(engine)
+    print("✅ Tablas creadas exitosamente!")
+
+def drop_db():
+    """
+    Eliminar todas las tablas de la base de datos
+    """
+    print("🗑️ Eliminando tablas de base de datos...")
+    SQLModel.metadata.drop_all(engine)
+    print("✅ Tablas eliminadas exitosamente!")
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--drop":
+        drop_db()
+    else:
+        init_db()
+
+alumnos_api\core\logging.py
+----------------------------------------------------------------
+import logging
+
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    return logging.getLogger("alumnos-api")
+
+alumnos_api\deps.py
+----------------------------------------------------------------
+"""
+Dependencias para FastAPI con SQLModel
+"""
+from typing import Annotated
+from fastapi import Depends
+from sqlmodel import Session
+from .core.db import get_session
+
+# Tipo anotado para la sesión de base de datos
+SessionDep = Annotated[Session, Depends(get_session)]
+
+# Función helper para usar en routers
+def get_db_session() -> Session:
+    """
+    Dependency function para obtener una sesión de base de datos.
+    Usar SessionDep en su lugar para type hints más limpios.
+    """
+    return Depends(get_session)
+
+alumnos_api\main.py
+----------------------------------------------------------------
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from alumnos_api.core.config import settings
+from alumnos_api.core.logging import setup_logging
+from alumnos_api.core.db import create_db_and_tables
+from alumnos_api.api.routers import alumnos, health
+
+log = setup_logging()
+
+def create_app() -> FastAPI:
+    app = FastAPI(title=settings.app_name, version=settings.version)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(health.router)
+    app.include_router(alumnos.router)
+    
+    # Crear tablas automáticamente al iniciar la aplicación
+    @app.on_event("startup")
+    def on_startup():
+        log.info("🚀 Iniciando API de Alumnos...")
+        log.info("📊 Inicializando tablas de base de datos...")
+        create_db_and_tables()
+        log.info("✅ Tablas inicializadas correctamente")
+    
+    return app
+
+# Imprescindible para uvicorn alumnos_api.main:app
+app = create_app()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("alumnos_api.main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+
+alumnos_api\repositories\__init__.py
+----------------------------------------------------------------
+
+
+alumnos_api\repositories\alumnos_repo.py
+----------------------------------------------------------------
+from typing import List, Optional
+from sqlmodel import Session, select, desc
+from fastapi import HTTPException
+from ..schemas.alumno import Alumno, AlumnoIn
+from ..services.alumnos_service import calcular_promedio
+
+def listar(session: Session) -> List[Alumno]:
+    """Listar todos los alumnos ordenados por ID descendente"""
+    statement = select(Alumno).order_by(desc(Alumno.id))
+    return session.exec(statement).all()
+
+def obtener(session: Session, alumno_id: int) -> Alumno:
+    """Obtener un alumno por ID"""
+    alumno = session.get(Alumno, alumno_id)
+    if not alumno:
+        raise HTTPException(status_code=404, detail="Alumno no encontrado")
+    return alumno
+
+def crear(session: Session, data: AlumnoIn) -> Alumno:
+    """Crear un nuevo alumno"""
+    promedio = calcular_promedio(data.nota1, data.nota2, data.nota3, data.notaFinal)
+    
+    # Crear instancia del modelo
+    alumno = Alumno(
+        nombre=data.nombre,
+        nota1=data.nota1,
+        nota2=data.nota2,
+        nota3=data.nota3,
+        notaFinal=data.notaFinal,
+        promedioFinal=promedio
+    )
+    
+    session.add(alumno)
+    session.commit()
+    session.refresh(alumno)
+    return alumno
+
+def actualizar(session: Session, alumno_id: int, data: AlumnoIn) -> Alumno:
+    """Actualizar un alumno existente"""
+    alumno = obtener(session, alumno_id)  # Verificar que existe
+    
+    promedio = calcular_promedio(data.nota1, data.nota2, data.nota3, data.notaFinal)
+    
+    # Actualizar campos
+    alumno.nombre = data.nombre
+    alumno.nota1 = data.nota1
+    alumno.nota2 = data.nota2
+    alumno.nota3 = data.nota3
+    alumno.notaFinal = data.notaFinal
+    alumno.promedioFinal = promedio
+    
+    session.add(alumno)
+    session.commit()
+    session.refresh(alumno)
+    return alumno
+
+def eliminar(session: Session, alumno_id: int) -> bool:
+    """Eliminar un alumno"""
+    alumno = obtener(session, alumno_id)  # Verificar que existe
+    
+    session.delete(alumno)
+    session.commit()
+    return True
+
+alumnos_api\schemas\__init__.py
+----------------------------------------------------------------
+
+
+alumnos_api\schemas\alumno.py
+----------------------------------------------------------------
+from typing import Optional
+from sqlmodel import SQLModel, Field
+from pydantic import validator
+
+def _nota_field():
+    return Field(..., ge=0.0, le=10.0, description="Rango 0.0 a 10.0")
+
+# Modelo base para la tabla
+class AlumnoBase(SQLModel):
+    nombre: str = Field(..., min_length=1, max_length=100)
+    nota1: float = _nota_field()
+    nota2: float = _nota_field()
+    nota3: float = _nota_field()
+    notaFinal: float = _nota_field()
+
+    @validator("nombre")
+    def limpiar_nombre(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("El nombre no puede estar vacío.")
+        return v
+
+# Modelo para la tabla de base de datos
+class Alumno(AlumnoBase, table=True):
+    __tablename__ = "alumnos"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    promedioFinal: float = Field(...)
+
+# Modelo para input (sin ID ni promedio, se calculan automáticamente)
+class AlumnoIn(AlumnoBase):
+    pass
+
+# Modelo para output (con ID y promedio calculado)
+class AlumnoOut(AlumnoBase):
+    id: int
+    promedioFinal: float
+
+alumnos_api\services\__init__.py
+----------------------------------------------------------------
+
+
+alumnos_api\services\alumnos_service.py
+----------------------------------------------------------------
+def calcular_promedio(n1: float, n2: float, n3: float, examen: float) -> float:
+    continua = (n1 + n2 + n3) / 3.0
+    return round(continua * 0.7 + examen * 0.3, 2)
+
+init_estructura.bat
+----------------------------------------------------------------
+@echo off
+REM === Crear carpetas base ===
+mkdir app 2>nul
+mkdir app\api\routers 2>nul
+mkdir app\core 2>nul
+mkdir app\repositories 2>nul
+mkdir app\services 2>nul
+mkdir app\schemas 2>nul
+mkdir tests 2>nul
+
+REM === Crear archivos vacíos si no existen ===
+type NUL > app\api\__init__.py
+type NUL > app\api\routers\__init__.py
+type NUL > app\core\__init__.py
+type NUL > app\repositories\__init__.py
+type NUL > app\services\__init__.py
+type NUL > app\schemas\__init__.py
+type NUL > app\deps.py
+type NUL > app\main.py
+type NUL > app\core\config.py
+type NUL > app\core\db.py
+type NUL > app\core\logging.py
+type NUL > app\api\routers\health.py
+type NUL > app\api\routers\alumnos.py
+type NUL > app\schemas\alumno.py
+type NUL > app\services\alumnos_service.py
+type NUL > app\repositories\alumnos_repo.py
+type NUL > tests\test_alumnos.py
+echo Estructura creada.
+
+MIGRATION_SUMMARY.md
+----------------------------------------------------------------
+# 🎉 Migración a SQLModel Completada
+
+## ✅ Cambios Realizados
+
+### 1. **Dependencias Actualizadas**
+- ➕ Agregado `sqlmodel==0.0.21`
+- ➕ Agregado `sqlalchemy==2.0.32`
+- 🔄 Actualizado `pymysql[rsa]==1.1.2`
+
+### 2. **Schemas Refactorizados** (`alumnos_api/schemas/alumno.py`)
+- 🔄 Convertido de Pydantic puro a SQLModel
+- ➕ Nuevo modelo `Alumno` para la tabla de BD
+- ➕ Modelo base `AlumnoBase` compartido
+- ✅ Mantenidas validaciones existentes
+
+### 3. **Base de Datos Modernizada** (`alumnos_api/core/db.py`)
+- 🔄 Reemplazado PyMySQL directo por SQLAlchemy Engine
+- ➕ Connection pooling automático
+- ➕ Función `get_session()` para dependency injection
+- ✅ Función legacy `get_connection()` mantenida para compatibilidad
+
+### 4. **Repositorio con ORM** (`alumnos_api/repositories/alumnos_repo.py`)
+- 🔄 Eliminado SQL crudo, reemplazado por SQLModel queries
+- ➕ Type-safe queries con `select()`
+- ➕ Mejor manejo de errores y transacciones
+- ✅ Lógica de negocio mantenida
+
+### 5. **Dependency Injection** (`alumnos_api/deps.py`)
+- ➕ Implementado `SessionDep` para inyección de sesiones
+- ➕ Type hints mejorados con `Annotated`
+
+### 6. **Routers Modernizados**
+- 🔄 Endpoints usando dependency injection
+- ➕ Type hints más específicos
+- ✅ Misma API pública mantenida
+
+### 7. **Auto-inicialización** (`alumnos_api/main.py`)
+- ➕ Creación automática de tablas al arrancar
+- ➕ Logging mejorado del proceso de inicialización
+
+### 8. **Archivo de Configuración**
+- ➕ `.env.example` para nuevos usuarios
+- ✅ `.env` existente respetado
+
+---
+
+## 🚀 Ventajas de SQLModel
+
+### ✨ **Type Safety**
+```python
+# Antes (diccionarios sin tipos)
+def crear(conn, data) -> Dict[str, Any]:
+    ...
+
+# Ahora (modelos tipados)
+def crear(session: Session, data: AlumnoIn) -> Alumno:
+    ...
+```
+
+### 💉 **Dependency Injection**
+```python
+# Antes (manejo manual de conexiones)
+@router.get("")
+def listar():
+    conn = get_connection()
+    try:
+        return repo.listar(conn)
+    finally:
+        conn.close()
+
+# Ahora (inyección automática)
+@router.get("", response_model=List[AlumnoOut])
+def listar(session: SessionDep):
+    return repo.listar(session)
+```
+
+### 🔄 **Queries Type-Safe**
+```python
+# Antes (SQL crudo)
+cur.execute("SELECT * FROM alumnos ORDER BY id DESC")
+
+# Ahora (SQLModel query)
+statement = select(Alumno).order_by(desc(Alumno.id))
+```
+
+### 🛠️ **Auto Schema Management**
+- Creación automática de tablas
+- Validación de estructura
+- Migrations futuras más fáciles
+
+---
+
+## 🧪 Verificación
+
+✅ API iniciada correctamente  
+✅ Tablas creadas automáticamente  
+✅ Logging funcionando  
+✅ Health checks operativos  
+✅ Endpoints CRUD disponibles  
+
+## 📋 Próximos Pasos Recomendados
+
+1. **Crear tests unitarios** usando SQLModel
+2. **Implementar migrations** para cambios futuros de esquema
+3. **Añadir más validaciones** en los modelos
+4. **Optimizar queries** con eager loading si es necesario
+5. **Configurar logging avanzado** con structured logs
+
+---
+
+## 🔗 Enlaces Útiles
+
+- [SQLModel Documentation](https://sqlmodel.tiangolo.com/)
+- [FastAPI + SQLModel Tutorial](https://fastapi.tiangolo.com/tutorial/sql-databases/)
+- [SQLAlchemy 2.0 Docs](https://docs.sqlalchemy.org/en/20/)
+
+---
+
+**🎊 ¡Migración completada exitosamente! Tu API ahora usa SQLModel como ORM.**
+
+README.md
+----------------------------------------------------------------
+# 📚 CRUD de Alumnos — FastAPI + SQLModel + MySQL
+
+Proyecto completo de ejemplo que implementa un **CRUD de alumnos** usando:
+
+- ⚙️ **Backend:** [FastAPI](https://fastapi.tiangolo.com/) + [SQLModel](https://sqlmodel.tiangolo.com/)
+- 🗄️ **Base de datos:** MySQL con SQLAlchemy
+- 💻 **Frontend:** HTML, CSS y JavaScript vanilla
+- 🌐 **CORS habilitado:** compatible con React, Vite o cualquier cliente web moderno
+
+---
+
+## 🚀 Características
+
+- API REST con endpoints CRUD (`GET`, `POST`, `PUT`, `DELETE`)
+- **SQLModel ORM** para manejo type-safe de base de datos
+- Validación de rango de notas (0.0 a 10.0)
+- Cálculo automático del promedio final:  
+  `promedioFinal = ((nota1 + nota2 + nota3)/3)*0.7 + notaFinal*0.3`
+- **Creación automática de tablas** con SQLModel
+- Health check de base de datos (`/health/db`)
+- CORS configurado para desarrollo
+- **Dependency Injection** para sesiones de base de datos
+
+---
+
+## 🧩 Estructura del proyecto
+
+```
+fastapi-api-alumnos-basico/
+│
+├── alumnos_api/
+│   ├── main.py              # Punto de entrada con auto-init de tablas
+│   ├── deps.py              # Dependencias de FastAPI (SessionDep)
+│   ├── api/routers/
+│   │   ├── alumnos.py       # CRUD endpoints con SQLModel
+│   │   └── health.py        # Health checks
+│   ├── core/
+│   │   ├── config.py        # Configuración con Pydantic Settings
+│   │   ├── db.py            # SQLAlchemy engine + Session factory
+│   │   ├── init_db.py       # Script para inicializar tablas
+│   │   └── logging.py       # Sistema de logging
+│   ├── repositories/
+│   │   └── alumnos_repo.py  # Lógica de datos con SQLModel queries
+│   ├── services/
+│   │   └── alumnos_service.py  # Cálculo de promedios
+│   └── schemas/
+│       └── alumno.py        # Modelos SQLModel (tabla + DTOs)
+├── tests/
+├── .env.example             # Configuración de ejemplo
+├── requirements.txt         # Incluye SQLModel
+└── README.md
+```
+
+---
+
+## ⚙️ Requisitos previos
+
+- Python 3.9+
+- MySQL Server 8.x
+- Node.js (opcional, solo si usas React/Vite)
+
+---
+
+## 🗄️ Script SQL de base de datos
+
+Ejecuta este script en tu servidor MySQL (por consola, Workbench o phpMyAdmin):
+
+```sql
+DROP DATABASE IF EXISTS crud_alumnos;
+CREATE DATABASE IF NOT EXISTS crud_alumnos;
+USE crud_alumnos;
+
+CREATE TABLE IF NOT EXISTS alumnos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    nota1 DOUBLE NOT NULL,
+    nota2 DOUBLE NOT NULL,
+    nota3 DOUBLE NOT NULL,
+    notaFinal DOUBLE NOT NULL,
+    promedioFinal DOUBLE NOT NULL
+);
+```
+
+---
+
+## ⚙️ Configuración del Backend
+
+### 1️⃣ Instalar dependencias
+```bash
+pip install -r requirements.txt
+```
+
+### 2️⃣ Configurar variables de entorno
+Copia y configura el archivo `.env`:
+```bash
+cp .env.example .env
+```
+
+Edita `.env` con tus datos de MySQL:
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=tu_usuario
+DB_PASSWORD=tu_contraseña
+DB_NAME=crud_alumnos
+```
+
+### 3️⃣ Crear base de datos
+Ejecuta este script en MySQL:
+```sql
+CREATE DATABASE IF NOT EXISTS crud_alumnos;
+```
+
+> ✨ **Las tablas se crean automáticamente** gracias a SQLModel al iniciar la API.
+
+### 4️⃣ Ejecutar la API
+```bash
+.venv\Scripts\activate  
+uvicorn alumnos_api.main:app --reload
+```
+### 3️⃣ Ejecutar la API Pcshell
+```bash
+.\.venv\Scripts\Activate.ps1
+uvicorn alumnos_api.main:app --reload
+
+```
+
+📍 Accede a:
+- API root → http://127.0.0.1:8000/
+- Documentación Swagger → http://127.0.0.1:8000/docs  
+- Health check → http://127.0.0.1:8000/health/db
+
+---
+
+## 🌐 Frontend Vanilla
+
+### 1️⃣ Abrir el proyecto
+En la carpeta `frontend/`, abre el archivo `index.html` en el navegador  
+(recomendado: usar la extensión **Live Server** de VS Code).
+
+### 2️⃣ Interactuar con la API
+Podrás:
+- Crear nuevos alumnos
+- Editar notas existentes
+- Eliminar alumnos
+- Buscar por nombre en tiempo real
+
+🧮 El promedio final se calcula automáticamente en el servidor.
+
+---
+
+## 🔐 CORS (para React / Vite)
+
+Si desarrollas un frontend con React o Vite, tu backend ya acepta peticiones desde:
+
+```python
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+```
+
+Agrega más dominios si lo despliegas en producción.
+
+---
+
+## 🧠 Endpoints principales
+
+| Método | Endpoint | Descripción |
+|:-------|:----------|:-------------|
+| `GET` | `/` | Prueba general de la API |
+| `GET` | `/health/db` | Verifica conexión a MySQL |
+| `GET` | `/alumnos` | Lista todos los alumnos |
+| `GET` | `/alumnos/{id}` | Devuelve un alumno por ID |
+| `POST` | `/alumnos` | Crea un nuevo alumno |
+| `PUT` | `/alumnos/{id}` | Actualiza un alumno existente |
+| `DELETE` | `/alumnos/{id}` | Elimina un alumno |
+
+---
+
+## 🧪 Pruebas rápidas con curl o Postman
+
+**Crear alumno:**
+```bash
+curl -X POST http://127.0.0.1:8000/alumnos ^
+  -H "Content-Type: application/json" ^
+  -d "{"nombre":"Juan Carlos","nota1":9.0,"nota2":8.5,"nota3":9.0,"notaFinal":9.5}"
+```
+
+**Listar alumnos:**
+```bash
+curl http://127.0.0.1:8000/alumnos
+```
+
+---
+
+## 🧰 Tecnologías utilizadas
+
+| Componente | Tecnología |
+|-------------|-------------|
+| Backend | FastAPI + SQLModel |
+| Base de datos | MySQL 8 + SQLAlchemy |
+| ORM | SQLModel (Pydantic + SQLAlchemy) |
+| Dependency Injection | FastAPI Depends |
+| Frontend | HTML5, CSS3, JavaScript (ES6) |
+| Servidor | Uvicorn |
+
+---
+
+## 🆕 Novedades con SQLModel
+
+- **🎯 Type Safety:** Modelos tipados que funcionan tanto para API como BD
+- **🔄 Auto-migrations:** Creación automática de tablas
+- **💉 Dependency Injection:** Sesiones de BD mediante FastAPI Depends
+- **🧪 Fácil testing:** Modelos compartidos entre tests y producción
+- **📝 Menos código:** Un solo modelo para tabla, input y output
+- **🚀 Mejor rendimiento:** Connection pooling con SQLAlchemy
+
+---
+
+## 🧑‍💻 Autor
+
+**Juan Carlos Sulbarán González**  
+📧 sulbaranjc@gmail.com  
+📍 Madrid, España  
+
+> Proyecto educativo para enseñanza de programación y bases de datos.  
+> Licencia MIT — libre uso y adaptación.
+
+recolector_fuentes.py
+----------------------------------------------------------------
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import argparse
+import sys
+import os
+import time
+from pathlib import Path
+
+# Directorios que NO queremos recorrer
+DEFAULT_IGNORED_DIRS = {
+    ".git", ".hg", ".svn", ".idea", ".vscode",
+    "node_modules", "bower_components",
+    ".venv", "venv", "env", ".pytest_cache", ".mypy_cache",
+    "__pycache__", "dist", "build", "target", "out", ".next", ".nuxt", ".expo",
+}
+
+# Extensiones típicas de binarios/medios que NO debemos volcar al TXT
+DEFAULT_BINARY_EXTS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".ico", ".webp",
+    ".mp3", ".wav", ".flac", ".mp4", ".m4v", ".mov", ".avi", ".mkv",
+    ".pdf", ".zip", ".rar", ".7z", ".gz", ".bz2", ".xz", ".tar", ".iso",
+    ".ttf", ".otf", ".woff", ".woff2",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".class", ".jar",
+    ".ds_store",
+}
+
+# 🔒 Exclusiones por privacidad/ruido (por defecto)
+DEFAULT_EXCLUDED_NAMES = { ".env" }    # secretos
+DEFAULT_EXCLUDED_EXTS  = { ".log" }    # logs verbosos
+
+def looks_binary(sample: bytes) -> bool:
+    if b"\x00" in sample:
+        return True
+    weird = sum(1 for b in sample if b < 9 or (13 < b < 32) or b == 127)
+    return (len(sample) > 0 and weird / len(sample) > 0.30)
+
+def read_text_safely(p: Path, max_bytes: int) -> str:
+    size = p.stat().st_size
+    if size > max_bytes >= 0:
+        raise ValueError(f"Archivo demasiado grande ({size} bytes > {max_bytes}).")
+    with p.open("rb") as fh:
+        data = fh.read()
+    if looks_binary(data[:4096]):
+        raise ValueError("Archivo parece binario.")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            return data.decode("latin-1")
+        except UnicodeDecodeError:
+            return data.decode("utf-8", errors="replace")
+
+def normalize_patterns(csv: str):
+    if not csv:
+        return set()
+    return {s.strip() for s in csv.split(",") if s.strip()}
+
+def should_skip_path(path: Path, ignored_dirs, exclude_globs, excluded_names, excluded_exts):
+    # Ignora directorios por nombre exacto (bloquea la bajada en os.walk)
+    parts = set(part.lower() for part in path.parts)
+    if parts & {d.lower() for d in ignored_dirs}:
+        return True
+
+    # Archivos a excluir por nombre exacto o extensión (política por defecto)
+    name_lower = path.name.lower()
+    ext_lower = path.suffix.lower()
+    if name_lower in excluded_names or ext_lower in excluded_exts:
+        return True
+
+    # Aplica globs de exclusión manuales (--exclude)
+    rel = str(path)
+    for pat in exclude_globs:
+        try:
+            if path.match(pat) or rel.startswith(pat):
+                return True
+        except Exception:
+            continue
+    return False
+
+def human_time(seconds: float) -> str:
+    if seconds < 1:
+        return f"{int(seconds*1000)} ms"
+    if seconds < 60:
+        return f"{seconds:.2f} s"
+    m, s = divmod(int(seconds), 60)
+    return f"{m} min {s} s"
+
+def print_progress(current, total, prefix="", width=30, end=""):
+    # Barra simple: [#####.....] 42% (123/291)
+    if total <= 0:
+        msg = f"{prefix} procesando..."
+    else:
+        ratio = min(max(current / total, 0), 1)
+        filled = int(width * ratio)
+        bar = "#" * filled + "." * (width - filled)
+        pct = int(ratio * 100)
+        msg = f"{prefix} [{bar}] {pct:3d}% ({current}/{total})"
+    # Sobrescribe la línea en TTY, sino imprime normal
+    if sys.stdout.isatty():
+        print("\r" + msg, end=end, flush=True)
+    else:
+        print(msg, flush=True)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Genera un repositorio.txt con todas las fuentes del proyecto."
+    )
+    parser.add_argument("--root", "-r", default=".", help="Carpeta raíz del proyecto (por defecto: .)")
+    parser.add_argument("--output", "-o", default="repositorio.txt", help="Archivo de salida (por defecto: repositorio.txt)")
+    parser.add_argument("--include-ext", default="", help="Extensiones a FORZAR inclusión (csv, con punto). Ej: .py,.js,.ts")
+    parser.add_argument("--exclude-ext", default="", help="Extensiones a excluir además de las binarias por defecto. Ej: .lock,.tmp")
+    parser.add_argument("--exclude", default="", help="Patrones/paths a excluir (csv, glob). Ej: tests/screenshots,**/*.snap")
+    parser.add_argument("--ignored-dirs", default="", help="Nombres de directorios a ignorar (csv). Añade a los por defecto.")
+    parser.add_argument("--extra-excluded-names", default="", help="Nombres extra a excluir (csv). Ej: .env.local,.env.production")
+    parser.add_argument("--extra-excluded-exts", default="", help="Extensiones extra a excluir (csv). Ej: .db,.sqlite")
+    parser.add_argument("--no-default-excludes", action="store_true", help="Desactiva exclusiones .env y *.log por defecto.")
+    parser.add_argument("--max-bytes", type=int, default=2_000_000, help="Tamaño máx por archivo (-1 ilimitado). Por defecto: 2MB")
+    parser.add_argument("--follow-symlinks", action="store_true", help="Seguir enlaces simbólicos (por defecto NO).")
+    parser.add_argument("--header-line", default="-" * 64, help="Separador bajo el nombre del archivo.")
+    parser.add_argument("--list-binaries", action="store_true", help="Agrega inventario de omitidos al final.")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Modo silencioso: solo mensajes esenciales.")
+    args = parser.parse_args()
+
+    t0 = time.time()
+
+    root = Path(args.root).resolve()
+    output = Path(args.output).resolve()
+    include_exts = {e.lower() for e in normalize_patterns(args.include_ext)}
+    exclude_exts_cli = {e.lower() for e in normalize_patterns(args.exclude_ext)}
+    exclude_globs = normalize_patterns(args.exclude)
+    ignored_dirs = DEFAULT_IGNORED_DIRS | {d for d in normalize_patterns(args.ignored_dirs)}
+
+    # Exclusiones por privacidad/ruido
+    extra_names = {n for n in normalize_patterns(args.extra_excluded_names)}
+    extra_exts = {e.lower() for e in normalize_patterns(args.extra_excluded_exts)}
+    if args.no_default_excludes:
+        excluded_names = extra_names
+        excluded_exts = extra_exts
+    else:
+        excluded_names = DEFAULT_EXCLUDED_NAMES | extra_names
+        excluded_exts = DEFAULT_EXCLUDED_EXTS | extra_exts
+
+    auto_skip = {str(output)}  # Evitar incluir el propio archivo
+
+    if not args.quiet:
+        print(f"🚀 Iniciando recolección desde: {root}")
+        print(f"📄 Archivo de salida: {output}")
+
+    # --- PRE-SCAN: construir lista de candidatos para progreso visible
+    candidate_files = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=args.follow_symlinks):
+        # Evitar bajar a directorios ignorados
+        dirnames[:] = sorted([
+            d for d in dirnames
+            if not should_skip_path(Path(dirpath, d), ignored_dirs, exclude_globs, excluded_names, excluded_exts)
+        ])
+        for name in filenames:
+            p = Path(dirpath, name)
+            if str(p.resolve()) in auto_skip:
+                continue
+            if should_skip_path(p, ignored_dirs, exclude_globs, excluded_names, excluded_exts):
+                continue
+            candidate_files.append(Path(dirpath, name))
+
+    total_candidates = len(candidate_files)
+    if not args.quiet:
+        print(f"🔎 Archivos candidatos: {total_candidates}")
+        if sys.stdout.isatty():
+            print()  # línea en blanco antes de la barra
+
+    # --- PROCESAMIENTO con progreso
+    text_files = []
+    skipped_binary = []
+    skipped_large = []
+    skipped_policy = []
+    skipped_other = []
+
+    processed = 0
+    for p in sorted(candidate_files, key=lambda x: str(x).lower()):
+        processed += 1
+        if not args.quiet:
+            print_progress(processed, total_candidates, prefix="⏳ Procesando")
+
+        ext = p.suffix.lower()
+        # Exclusión CLI extra por extensión
+        if ext in exclude_exts_cli:
+            skipped_other.append((p, "ext_excluded_cli"))
+            continue
+        # Binarios conocidos
+        if ext in DEFAULT_BINARY_EXTS and ext not in include_exts:
+            skipped_binary.append((p, "binary_ext"))
+            continue
+
+        try:
+            content = read_text_safely(p, args.max_bytes)
+            text_files.append((p, content))
+        except ValueError as ve:
+            msg = str(ve)
+            if "demasiado grande" in msg:
+                skipped_large.append((p, "too_large"))
+            elif "binario" in msg:
+                skipped_binary.append((p, "binary_heuristic"))
+            else:
+                skipped_other.append((p, f"ValueError:{msg}"))
+        except Exception as ex:
+            skipped_other.append((p, f"Error:{type(ex).__name__}:{ex}"))
+
+    # --- ESCRITURA
+    rel_base = root
+    with output.open("w", encoding="utf-8", newline="\n") as out:
+        out.write(f"# Repositorio de fuentes\n")
+        out.write(f"# Raíz: {rel_base}\n")
+        out.write(f"# Archivos incluidos: {len(text_files)}\n\n")
+
+        for p, content in text_files:
+            rel = str(p.relative_to(rel_base))
+            out.write(rel + "\n")
+            out.write(args.header_line + "\n")
+            out.write(content)
+            if not content.endswith("\n"):
+                out.write("\n")
+            out.write("\n")  # espacio entre archivos
+
+        if args.list_binaries:
+            out.write("\n# --- Archivos omitidos (referencia) ---\n")
+            # Nota: los excluidos por política no entran al pre-scan, así que no están contados aquí.
+            if skipped_policy:
+                out.write("# Excluidos por política (.env, *.log, y extras):\n")
+                for p, reason in skipped_policy:
+                    out.write(f"- {p.relative_to(rel_base)} [{reason}]\n")
+            if skipped_binary:
+                out.write("# Binarios/medios:\n")
+                for p, reason in skipped_binary:
+                    out.write(f"- {p.relative_to(rel_base)} [{reason}]\n")
+            if skipped_large:
+                out.write("# Demasiado grandes:\n")
+                for p, reason in skipped_large:
+                    out.write(f"- {p.relative_to(rel_base)} [{reason}]\n")
+            if skipped_other:
+                out.write("# Otros omitidos/errores:\n")
+                for p, reason in skipped_other:
+                    out.write(f"- {p.relative_to(rel_base)} [{reason}]\n")
+
+    # --- FIN / RESUMEN
+    t1 = time.time()
+    if not args.quiet:
+        # Limpiar la línea de la barra en TTY
+        if sys.stdout.isatty():
+            print("\r" + " " * 80, end="\r")
+        print("✅ Proceso finalizado.")
+        print(f"📝 Incluidos en {output.name}: {len(text_files)} archivos")
+        print(f"⏱️ Duración: {human_time(t1 - t0)}")
+        print(f"📍 Ubicación: {output}")
+
+    # Mensaje final para integraciones o logs
+    print(f"Listo. Salida: {output}")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+requirements.txt
+----------------------------------------------------------------
+annotated-types==0.7.0
+anyio==4.11.0
+black==25.9.0
+certifi==2025.10.5
+click==8.3.0
+colorama==0.4.6
+dnspython==2.8.0
+email-validator==2.3.0
+fastapi==0.119.0
+fastapi-cli==0.0.13
+fastapi-cloud-cli==0.3.1
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.7.1
+httpx==0.28.1
+sqlmodel==0.0.21
+sqlalchemy==2.0.32
+pymysql[rsa]==1.1.2
+idna==3.11
+itsdangerous==2.2.0
+Jinja2==3.1.6
+markdown-it-py==4.0.0
+MarkupSafe==3.0.3
+mdurl==0.1.2
+mypy_extensions==1.1.0
+orjson==3.11.3
+packaging==25.0
+pathspec==0.12.1
+platformdirs==4.5.0
+pydantic==2.12.2
+pydantic-extra-types==2.10.6
+pydantic-settings==2.11.0
+pydantic_core==2.41.4
+Pygments==2.19.2
+python-dotenv==1.1.1
+python-multipart==0.0.20
+pytokens==0.1.10
+PyYAML==6.0.3
+rich==14.2.0
+rich-toolkit==0.15.1
+rignore==0.7.0
+sentry-sdk==2.41.0
+shellingham==1.5.4
+sniffio==1.3.1
+starlette==0.48.0
+typer==0.19.2
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+ujson==5.11.0
+urllib3==2.5.0
+uvicorn==0.37.0
+watchfiles==1.1.1
+websockets==15.0.1
+
+test_migration.py
+----------------------------------------------------------------
+"""
+Script de test para verificar la migración a SQLModel
+"""
+import sys
+import os
+
+# Agregar el directorio raíz al path para importar módulos
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from alumnos_api.core.db import engine, create_db_and_tables
+from alumnos_api.schemas.alumno import Alumno, AlumnoIn
+from sqlmodel import Session
+
+def test_sqlmodel_migration():
+    """Test básico para verificar que SQLModel funciona correctamente"""
+    
+    print("🧪 Iniciando test de migración a SQLModel...")
+    
+    # 1. Crear tablas
+    print("📊 Creando tablas...")
+    create_db_and_tables()
+    print("✅ Tablas creadas exitosamente")
+    
+    # 2. Test de inserción
+    print("📝 Insertando alumno de prueba...")
+    alumno_data = AlumnoIn(
+        nombre="Juan Test",
+        nota1=8.5,
+        nota2=9.0,
+        nota3=8.0,
+        notaFinal=9.2
+    )
+    
+    with Session(engine) as session:
+        # Crear alumno
+        promedio = ((alumno_data.nota1 + alumno_data.nota2 + alumno_data.nota3) / 3.0) * 0.7 + alumno_data.notaFinal * 0.3
+        
+        alumno = Alumno(
+            nombre=alumno_data.nombre,
+            nota1=alumno_data.nota1,
+            nota2=alumno_data.nota2,
+            nota3=alumno_data.nota3,
+            notaFinal=alumno_data.notaFinal,
+            promedioFinal=promedio
+        )
+        
+        session.add(alumno)
+        session.commit()
+        session.refresh(alumno)
+        
+        print(f"✅ Alumno creado con ID: {alumno.id}")
+        print(f"📊 Promedio calculado: {alumno.promedioFinal}")
+    
+    # 3. Test de consulta
+    print("🔍 Consultando alumnos...")
+    with Session(engine) as session:
+        from sqlmodel import select
+        statement = select(Alumno)
+        alumnos = session.exec(statement).all()
+        print(f"✅ Encontrados {len(alumnos)} alumnos en la base de datos")
+        
+        for alumno in alumnos:
+            print(f"   - {alumno.nombre}: {alumno.promedioFinal}")
+    
+    print("🎉 ¡Migración a SQLModel completada exitosamente!")
+
+if __name__ == "__main__":
+    test_sqlmodel_migration()
+
+tests\test_alumnos.py
+----------------------------------------------------------------
+
+
